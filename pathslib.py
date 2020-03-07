@@ -112,6 +112,12 @@ class Paths(cabc.Sequence):
             f"(paths={reprlib.repr(self._paths)})>"
         )
 
+    def __contains__(self, other):
+        return other in self._paths
+
+    def __iter__(self):
+        return iter(self._paths)
+
     def __getitem__(self, item):
         if isinstance(item, cabc.Iterable):
             return self.__class__(
