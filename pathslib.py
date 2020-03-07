@@ -83,7 +83,7 @@ class PathMethod(DescriptorBase):
         if rtype is THIS:
             rtype = instance.__class__
         if rtype is CHAIN: 
-            rtype = iter
+            rtype = functools.partial(map, instance.__class__)
             if chain:
                 rtype = _chain(instance.__class__)
         vector = None
@@ -114,11 +114,11 @@ class Paths(cabc.Sequence):
 
     def __getitem__(self, item):
         if isinstance(item, cabc.Iterable):
-            return [
+            return self.__class__(
                 path
                 for path, i in zip(self._paths, item)
                 if i
-            ]
+            )
         if isinstance(item, slice):
             return self.__class__(self._paths[item])
         return self._paths[item]
@@ -193,6 +193,9 @@ class Paths(cabc.Sequence):
 
 
 class DangerousPaths(Paths):
+    """
+    I have not tested, even in passing, a god damnd thing here.
+    """
     chmod = PathMethod()
     lchmod = PathMethod()
     link_to = PathMethod()
@@ -208,18 +211,32 @@ class DangerousPaths(Paths):
     write_text = PathMethod()
 
 if __name__ == '__main__':
-    fake = pathlib.Path(r'C:\Windows\py.exe')
     w = pathlib.Path(__file__).resolve()
-    x = pathlib.Path.cwd()
+    x = w.parent
     y = x.parent
     z = Paths([w, x, y])
+    print('Repr')
     print(z)
+    print()
+    print("Property Access")
     print(list(z.name))
+    print()
+    print("Method call")
+    print(list(z.is_dir()))
+    print()
+    print('Chain False -> True')
     print(list(z.glob('*.py')))
-    print(list(z.glob('*.py', chain=True)))
+    print(z.glob('*.py', chain=True))
+    print()
+    print("Bool vector filtering")
     print(z[z.is_dir()])
-    print(z[z.samefile([fake, w, w])])
+    print()
+    print("\tVectorized.")
+    print('Single argument')
+    print(z[z.samefile(w)])
+    print('Vector of Single, len-1 tuple, and dict')
     print(z[z.samefile([w, (x,), {'other_path': y}])])
+    print('Vector of (args, kwargs) pairs')
     print(z[
         z.samefile([
             ((w,), {}),
@@ -227,4 +244,4 @@ if __name__ == '__main__':
             ((), {'other_path': y}),
         ])
     ])
-    print(z[z.samefile(w)])
+    
