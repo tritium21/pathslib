@@ -220,9 +220,11 @@ if __name__ == '__main__':
     print()
     print("Property Access")
     print(list(z.name))
+    print(z.parent)
     print()
     print("Method call")
     print(list(z.is_dir()))
+    print(z.expanduser())
     print()
     print('Chain False -> True')
     print(list(z.glob('*.py')))
@@ -244,4 +246,5 @@ if __name__ == '__main__':
             ((), {'other_path': y}),
         ])
     ])
-    
+    print('String argument')
+    print(z[z.match(__file__)])
