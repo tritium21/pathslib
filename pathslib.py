@@ -54,6 +54,50 @@ class Args(list):
     pass
 
 
+class BoolVector(cabc.Sequence):
+    def __repr__(self):
+        return (
+            f"<{self.__class__.__qualname__}"
+            f"({reprlib.repr(self._data)})>"
+        )
+
+    def __init__(self, data, /):
+        self._data = tuple(data)
+
+    def __getitem__(self, item):
+        return self._data[item]
+
+    def __len__(self):
+        return len(self._data)
+
+    def __and__(self, other):
+        if not isinstance(other, BoolVector):
+            return NotImplemented
+        return self.__class__(
+            l and r
+            for l, r in zip(self, other)
+        )
+
+    def __xor__(self, other):
+        if not isinstance(other, BoolVector):
+            return NotImplemented
+        return self.__class__(
+            (l or r) and (not (l and r))
+            for l, r in zip(self, other)
+        )
+
+    def __or__(self, other):
+        if not isinstance(other, BoolVector):
+            return NotImplemented
+        return self.__class__(
+            l or r
+            for l, r in zip(self, other)
+        )
+
+    def __invert__(self):
+        return self.__class__(not l for l in self)
+
+
 class DescriptorBase:
     def __init__(self, rtype=iter):
         self._rtype = rtype
@@ -155,6 +199,7 @@ class Paths(cabc.Sequence):
     drive = PathProperty()
     root = PathProperty()
     anchor = PathProperty()
+    parents = PathProperty()
     parent = PathProperty(rtype=THIS)
     name = PathProperty()
     suffix = PathProperty()
@@ -163,27 +208,27 @@ class Paths(cabc.Sequence):
 
     as_posix = PathMethod()
     as_uri = PathMethod()
-    is_absolute = PathMethod()
-    is_reserved = PathMethod()
+    is_absolute = PathMethod(rtype=BoolVector)
+    is_reserved = PathMethod(rtype=BoolVector)
     joinpath = PathMethod(rtype=THIS)
-    match = PathMethod()
+    match = PathMethod(rtype=BoolVector)
     relative_to = PathMethod(rtype=THIS)
     with_name = PathMethod(rtype=THIS)
     with_suffix = PathMethod(rtype=THIS)
 
     stat = PathMethod()
-    exists = PathMethod()
+    exists = PathMethod(rtype=BoolVector)
     expanduser = PathMethod(rtype=THIS)
     glob = PathMethod(rtype=CHAIN)
     group = PathMethod()
-    is_dir = PathMethod()
-    is_file = PathMethod()
-    is_mount = PathMethod()
-    is_symlink = PathMethod()
-    is_socket = PathMethod()
-    is_fifo = PathMethod()
-    is_block_device = PathMethod()
-    is_char_device = PathMethod()
+    is_dir = PathMethod(rtype=BoolVector)
+    is_file = PathMethod(rtype=BoolVector)
+    is_mount = PathMethod(rtype=BoolVector)
+    is_symlink = PathMethod(rtype=BoolVector)
+    is_socket = PathMethod(rtype=BoolVector)
+    is_fifo = PathMethod(rtype=BoolVector)
+    is_block_device = PathMethod(rtype=BoolVector)
+    is_char_device = PathMethod(rtype=BoolVector)
     iterdir = PathMethod(rtype=CHAIN)
     lstat = PathMethod()
     owner = PathMethod()
@@ -191,7 +236,7 @@ class Paths(cabc.Sequence):
     read_text = PathMethod()
     resolve = PathMethod(rtype=THIS)
     rglob = PathMethod(rtype=CHAIN)
-    samefile = PathMethod()
+    samefile = PathMethod(rtype=BoolVector)
 
 
 class DangerousPaths(Paths):
@@ -250,8 +295,10 @@ if __name__ == '__main__':
         )
     ])
     print('Vector keyword argument')
-    print(z[
-        z.samefile(
-            other_path=Args([w, x, y]),
-        )
-    ])
+    _samefile = z.samefile(
+        other_path=Args([w, x, y]),
+    )
+    _isfile = z.is_file()
+    _flags = ~(_samefile ^ _isfile)
+    print(_flags)
+    print(z[_flags])
