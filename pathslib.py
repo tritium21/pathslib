@@ -26,7 +26,7 @@ def _mkargv(paths, args, kwargs):
         _positional.append(vector)
     if _positional:
         positional = zip(*_positional)
-    
+
     _keys = [
         itertools.repeat(k, _len)
         for k in kwargs.keys()
@@ -37,9 +37,9 @@ def _mkargv(paths, args, kwargs):
         if isinstance(value, Args):
             vector = value
         _values.append(vector)
-    _pairs =(
+    _pairs = (
         zip(k, v)
-        for k,v in zip(_keys, _values)
+        for k, v in zip(_keys, _values)
     )
     _keywords = [
         dict(p)
@@ -57,11 +57,11 @@ class Args(list):
 class BoolVector(cabc.Sequence):
     def __repr__(self):
         return (
-            f"<{self.__class__.__qualname__}"
+            f"<{type(self).__qualname__}"
             f"({reprlib.repr(self._data)})>"
         )
 
-    def __init__(self, data, /):
+    def __init__(self, data, /):  # noqa: E225
         self._data = tuple(data)
 
     def __getitem__(self, item):
@@ -73,7 +73,7 @@ class BoolVector(cabc.Sequence):
     def __and__(self, other):
         if not isinstance(other, BoolVector):
             return NotImplemented
-        return self.__class__(
+        return type(self)(
             l and r
             for l, r in zip(self, other)
         )
@@ -81,7 +81,7 @@ class BoolVector(cabc.Sequence):
     def __xor__(self, other):
         if not isinstance(other, BoolVector):
             return NotImplemented
-        return self.__class__(
+        return type(self)(
             (l or r) and (not (l and r))
             for l, r in zip(self, other)
         )
@@ -89,13 +89,13 @@ class BoolVector(cabc.Sequence):
     def __or__(self, other):
         if not isinstance(other, BoolVector):
             return NotImplemented
-        return self.__class__(
+        return type(self)(
             l or r
             for l, r in zip(self, other)
         )
 
     def __invert__(self):
-        return self.__class__(not l for l in self)
+        return type(self)(not l for l in self)
 
 
 class DescriptorBase:
@@ -108,11 +108,12 @@ class DescriptorBase:
         self._name = name
         self._owner = owner
 
+
 class PathProperty(DescriptorBase):
     def __get__(self, instance, owner=None):
         rtype = self._rtype
         if rtype is THIS:
-            rtype = instance.__class__
+            rtype = type(instance)
         return rtype(
             getattr(path, self._name)
             for path in instance._paths
@@ -126,11 +127,11 @@ class PathMethod(DescriptorBase):
     def __call__(self, instance, *args, chain=False, **kwargs):
         rtype = self._rtype
         if rtype is THIS:
-            rtype = instance.__class__
-        if rtype is CHAIN: 
-            rtype = functools.partial(map, instance.__class__)
+            rtype = type(instance)
+        if rtype is CHAIN:
+            rtype = functools.partial(map, type(instance))
             if chain:
-                rtype = _chain(instance.__class__)
+                rtype = _chain(type(instance))
         arguments = _mkargv(instance._paths, args, kwargs)
         return rtype(
             getattr(path, self._name)(*p, **kw)
@@ -143,13 +144,13 @@ class Paths(cabc.Sequence):
     def from_path(cls, path):
         return cls([pathlib.Path(path)])
 
-    def __init__(self, paths):
+    def __init__(self, paths, /):  # noqa: E225
         self._paths = tuple(paths)
 
     def __repr__(self):
         return (
-            f"<{self.__class__.__qualname__}"
-            f"(paths={reprlib.repr(self._paths)})>"
+            f"<{type(self).__qualname__}"
+            f"({reprlib.repr(self._paths)})>"
         )
 
     def __contains__(self, other):
@@ -160,13 +161,13 @@ class Paths(cabc.Sequence):
 
     def __getitem__(self, item):
         if isinstance(item, cabc.Iterable):
-            return self.__class__(
+            return type(self)(
                 path
                 for path, i in zip(self._paths, item)
                 if i
             )
         if isinstance(item, slice):
-            return self.__class__(self._paths[item])
+            return type(self)(self._paths[item])
         return self._paths[item]
 
     def __len__(self):
@@ -174,26 +175,26 @@ class Paths(cabc.Sequence):
 
     def __add__(self, other):
         if isinstance(other, Paths):
-            return self.__class__(self._paths + other._paths)
+            return type(self)(self._paths + other._paths)
         return NotImplemented
-    
+
     def item_replace(self, index, item):
         data = list(self._paths)
         data[index] = item
-        return self.__class__(data)
+        return type(self)(data)
 
     def item_insert(self, index, item):
         data = list(self._paths)
         data.insert(index, item)
-        return self.__class__(data)
+        return type(self)(data)
 
     def item_append(self, item):
-        return self + self.__class__([item])
+        return self + type(self)([item])
 
     def item_remove(self, index):
         data = list(self._paths)
         del data[index]
-        return self.__class__(data)
+        return type(self)(data)
 
     parts = PathProperty()
     drive = PathProperty()
@@ -256,6 +257,7 @@ class DangerousPaths(Paths):
     unlink = PathMethod()
     write_bytes = PathMethod()
     write_text = PathMethod()
+
 
 if __name__ == '__main__':
     w = pathlib.Path(__file__).resolve()
