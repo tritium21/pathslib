@@ -13,44 +13,45 @@ def _chain(rtype):
         return rtype(itertools.chain.from_iterable(iterable))
     return inner
 
-def _isiterable(obj):
-    return (
-        isinstance(obj, cabc.Iterable)
-        and not isinstance(obj, (str, bytes, bytearray))
+
+def _mkargv(paths, args, kwargs):
+    _len = len(paths)
+    positional = itertools.repeat(tuple(), _len)
+    keyword = itertools.repeat(dict(), _len)
+    _positional = []
+    for arg in args:
+        vector = itertools.repeat(arg, _len)
+        if isinstance(arg, Args):
+            vector = arg
+        _positional.append(vector)
+    if _positional:
+        positional = zip(*_positional)
+    
+    _keys = [
+        itertools.repeat(k, _len)
+        for k in kwargs.keys()
+    ]
+    _values = []
+    for value in kwargs.values():
+        vector = itertools.repeat(value, _len)
+        if isinstance(value, Args):
+            vector = value
+        _values.append(vector)
+    _pairs =(
+        zip(k, v)
+        for k,v in zip(_keys, _values)
     )
+    _keywords = [
+        dict(p)
+        for p in zip(*_pairs)
+    ]
+    if _keywords:
+        keyword = _keywords
+    return zip(paths, positional, keyword)
 
-def _isargskwargs(obj):
-    return (
-        len(obj) == 2
-        and isinstance(obj[0], cabc.Iterable)
-        and isinstance(obj[1], cabc.Mapping)
-    )
 
-class PathArg:
-    """
-    Iffn this is gonna break, its gonna break here
-    """
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-
-    def __iter__(self):
-        return iter((self.args, self.kwargs))
-
-    @classmethod
-    def from_arguments(cls, obj):
-        if isinstance(obj, cabc.Mapping):
-            return cls(**obj)
-        if _isiterable(obj):
-            if _isargskwargs(obj):
-                return cls(*obj[0], **obj[1])
-            return cls(*obj)
-        return cls(obj)
-
-    @classmethod
-    def stream(cls, iterable):
-        for item in iterable:
-            yield cls.from_arguments(item)
+class Args(list):
+    pass
 
 
 class DescriptorBase:
@@ -86,15 +87,10 @@ class PathMethod(DescriptorBase):
             rtype = functools.partial(map, instance.__class__)
             if chain:
                 rtype = _chain(instance.__class__)
-        vector = None
-        if len(args) == 1 and _isiterable(args[0]):
-            vector = args[0]
-        if vector is None:
-            vector = itertools.repeat((args, kwargs))
-        vector = PathArg.stream(vector)
+        arguments = _mkargv(instance._paths, args, kwargs)
         return rtype(
-            getattr(path, self._name)(*ar, **kw)
-            for path, (ar, kw) in zip(instance._paths, vector)
+            getattr(path, self._name)(*p, **kw)
+            for path, p, kw in arguments
         )
 
 
@@ -239,18 +235,23 @@ if __name__ == '__main__':
     print("Bool vector filtering")
     print(z[z.is_dir()])
     print()
-    print("\tVectorized.")
-    print('Single argument')
-    print(z[z.samefile(w)])
-    print('Vector of Single, len-1 tuple, and dict')
-    print(z[z.samefile([w, (x,), {'other_path': y}])])
-    print('Vector of (args, kwargs) pairs')
+    print('Single positional argument')
     print(z[
-        z.samefile([
-            ((w,), {}),
-            ((x,), {}),
-            ((), {'other_path': y}),
-        ])
+        z.samefile(w)
     ])
-    print('String argument')
-    print(z[z.match(__file__)])
+    print('Single keyword argument')
+    print(z[
+        z.samefile(other_path=w)
+    ])
+    print('Vector positional argument')
+    print(z[
+        z.samefile(
+            Args([w, x, y])
+        )
+    ])
+    print('Vector keyword argument')
+    print(z[
+        z.samefile(
+            other_path=Args([w, x, y]),
+        )
+    ])
