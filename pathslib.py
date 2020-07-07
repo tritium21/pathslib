@@ -7,7 +7,10 @@ import reprlib
 
 #E Directory Tree Generator
 def _resolve(path, followlinks):
-    return (followlinks and path.is_symlink() and path.resolve().is_dir()) or path.is_dir()
+    return (
+        (followlinks and path.is_symlink() and path.resolve().is_dir())
+        or path.is_dir()
+    )
 
 def _iterdir(path, key):
     items = sorted(path.iterdir(), key=key)
@@ -165,10 +168,11 @@ class _DescriptorBase:
         self.__doc__ = getattr(pathlib.Path, self._name).__doc__
 
 
-class _PathProperty(_DescriptorBase, property):
+class _PathProperty(_DescriptorBase):
     def __get__(self, instance, owner=None):
         if instance is None:
-            return self
+            # This garbage right here is just for pydoc
+            return property(fget=self.__get__, doc=self.__doc__)
         rtype = self._rtype
         if rtype is THIS:
             rtype = type(instance)
@@ -181,9 +185,13 @@ class _PathProperty(_DescriptorBase, property):
 class _PathMethod(_DescriptorBase):
     def __get__(self, instance, owner=None):
         if instance is None:
-            return self
+            # This garbage right here is just for pydoc
+            v = lambda *a, **kw: self(*a, **kw)
+            v.__name__ = self._name
+            v.__doc__ = self.__doc__
+            return v
         part = functools.partial(self, instance)
-        part.__doc__ = getattr(pathlib.Path, self._name).__doc__
+        part.__doc__ = self.__doc__
         return part
 
     def __call__(self, instance, *args, chain=False, **kwargs):
@@ -203,9 +211,12 @@ class _PathMethod(_DescriptorBase):
 
 class Paths(cabc.Sequence):
     """
-    A collection object for pathlib.Path, supports the sequence API, and vectorized versions of all methods on pathlib.Path objects.
+    A collection object for pathlib.Path, supports the sequence API, and
+    vectorized versions of all methods on pathlib.Path objects that do not
+    modify the filesystem.
 
-    This class does not implement methods that modify the filesystem, for safety sake.
+    This class does not implement methods that modify the filesystem, for
+    safety sake.
     
     See: DangerousPaths, pathlib
     """
@@ -329,25 +340,30 @@ class DangerousPaths(Paths):
 
 
 if __name__ == '__main__':
+    def errors(error):
+        print(error)
     import time, os
-    p = r'C:\devel\BBS'
-    t1 = time.monotonic_ns()
-    for _ in walk(p): pass
-    t2 = time.monotonic_ns()
-    print(f"Mine\tdown:\t{t2 - t1}ns")
-    t1 = time.monotonic_ns()
-    for _ in walk(p, topdown=False): pass
-    t2 = time.monotonic_ns()
-    print(f"Mine\tup:\t{t2 - t1}ns")
+    p = pathlib.Path(__file__).resolve().parent
+    
+    t1 = time.time()
+    for _ in walk(p, onerror=errors): pass
+    t2 = time.time()
+    print(f"Mine\tdown:\t{t2 - t1} seconds")
 
-    t1 = time.monotonic_ns()
-    for _ in os.walk(p): pass
-    t2 = time.monotonic_ns()
-    print(f"OS\tdown:\t{t2 - t1}ns")
-    t1 = time.monotonic_ns()
-    for _ in os.walk(p, topdown=False): pass
-    t2 = time.monotonic_ns()
-    print(f"OS\tup:\t{t2 - t1}ns")
+    t1 = time.time()
+    for _ in walk(p, onerror=errors, topdown=False): pass
+    t2 = time.time()
+    print(f"Mine\tup:\t{t2 - t1} seconds")
+
+    t1 = time.time()
+    for _ in os.walk(p, onerror=errors): pass
+    t2 = time.time()
+    print(f"OS\tdown:\t{t2 - t1} seconds")
+
+    t1 = time.time()
+    for _ in os.walk(p, onerror=errors, topdown=False): pass
+    t2 = time.time()
+    print(f"OS\tup:\t{t2 - t1} seconds")
 
     w = pathlib.Path(__file__).resolve()
     x = w.parent
