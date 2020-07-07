@@ -1,12 +1,62 @@
 import collections.abc as cabc
+import collections
 import functools
 import itertools
 import pathlib
 import reprlib
 
+#E Directory Tree Generator
+def _resolve(path, followlinks):
+    return (followlinks and path.is_symlink() and path.resolve().is_dir()) or path.is_dir()
+
+def _iterdir(path, key):
+    items = sorted(path.iterdir(), key=key)
+    groups = {
+        k: list(v)
+        for k, v in itertools.groupby(items, key=key)
+    }
+    return groups.get(True, []), groups.get(False, [])
+
+
+def walk(top, topdown=True, onerror=None, followlinks=False):
+    """
+    Just like os.walk, only yields a 3-tuple of
+        * A pathlib object representing the current directory
+        * A list of pathlib objects representing the directories
+        * A list of pathlib objects representing the files
+    
+    See: os.walk
+    """
+    path = pathlib.Path(top)
+    key = functools.partial(_resolve, followlinks=followlinks)
+    stack = []
+    _this_iter = iter([path])
+    _next = collections.deque()
+    while True:
+        try:
+            try:
+                item = next(_this_iter)
+            except StopIteration:
+                if not _next:
+                    if not topdown:
+                        yield from reversed(stack)
+                    return
+                _this_iter = iter(_next.pop())
+                continue
+            dirs, files = _iterdir(item, key)
+        except OSError as error:
+            if onerror is not None:
+                onerror(error)
+            return
+        if topdown:
+            yield item, dirs, files
+        else:
+            stack.append((item, dirs, files))
+        _next.appendleft(dirs)
+
+## Vector Paths
 THIS = object()
 CHAIN = object()
-
 
 def _chain(rtype):
     def inner(iterable):
@@ -51,10 +101,13 @@ def _mkargv(paths, args, kwargs):
 
 
 class Args(list):
+    """
+    A list.  Used for instance type checking.
+    """
     pass
 
 
-class BoolVector(cabc.Sequence):
+class _BoolVector(cabc.Sequence):
     def __repr__(self):
         return (
             f"<{type(self).__qualname__}"
@@ -71,46 +124,51 @@ class BoolVector(cabc.Sequence):
         return len(self._data)
 
     def __and__(self, other):
-        if not isinstance(other, BoolVector):
+        if not isinstance(other, _BoolVector):
             return NotImplemented
-        return type(self)(
+        return _BoolVector(
             l and r
             for l, r in zip(self, other)
         )
 
     def __xor__(self, other):
-        if not isinstance(other, BoolVector):
+        if not isinstance(other, _BoolVector):
             return NotImplemented
-        return type(self)(
+        return _BoolVector(
             (l or r) and (not (l and r))
             for l, r in zip(self, other)
         )
 
     def __or__(self, other):
-        if not isinstance(other, BoolVector):
+        if not isinstance(other, _BoolVector):
             return NotImplemented
-        return type(self)(
+        return _BoolVector(
             l or r
             for l, r in zip(self, other)
         )
 
     def __invert__(self):
-        return type(self)(not l for l in self)
+        return _BoolVector(not l for l in self)
 
 
-class DescriptorBase:
+class _DescriptorBase:
+    __doc__ = ""
     def __init__(self, rtype=iter):
         self._rtype = rtype
         self._name = None
         self._owner = None
+        self.__doc__ = ""
 
     def __set_name__(self, owner, name):
         self._name = name
         self._owner = owner
+        self.__doc__ = getattr(pathlib.Path, self._name).__doc__
 
 
-class PathProperty(DescriptorBase):
+class _PathProperty(_DescriptorBase, property):
     def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
         rtype = self._rtype
         if rtype is THIS:
             rtype = type(instance)
@@ -120,9 +178,13 @@ class PathProperty(DescriptorBase):
         )
 
 
-class PathMethod(DescriptorBase):
+class _PathMethod(_DescriptorBase):
     def __get__(self, instance, owner=None):
-        return functools.partial(self, instance)
+        if instance is None:
+            return self
+        part = functools.partial(self, instance)
+        part.__doc__ = getattr(pathlib.Path, self._name).__doc__
+        return part
 
     def __call__(self, instance, *args, chain=False, **kwargs):
         rtype = self._rtype
@@ -140,6 +202,13 @@ class PathMethod(DescriptorBase):
 
 
 class Paths(cabc.Sequence):
+    """
+    A collection object for pathlib.Path, supports the sequence API, and vectorized versions of all methods on pathlib.Path objects.
+
+    This class does not implement methods that modify the filesystem, for safety sake.
+    
+    See: DangerousPaths, pathlib
+    """
     @classmethod
     def from_path(cls, path):
         return cls([pathlib.Path(path)])
@@ -196,70 +265,90 @@ class Paths(cabc.Sequence):
         del data[index]
         return type(self)(data)
 
-    parts = PathProperty()
-    drive = PathProperty()
-    root = PathProperty()
-    anchor = PathProperty()
-    parents = PathProperty()
-    parent = PathProperty(rtype=THIS)
-    name = PathProperty()
-    suffix = PathProperty()
-    suffixes = PathProperty()
-    stem = PathProperty()
+    parts = _PathProperty()
+    drive = _PathProperty()
+    root = _PathProperty()
+    anchor = _PathProperty()
+    parents = _PathProperty()
+    parent = _PathProperty(rtype=THIS)
+    name = _PathProperty()
+    suffix = _PathProperty()
+    suffixes = _PathProperty()
+    stem = _PathProperty()
 
-    as_posix = PathMethod()
-    as_uri = PathMethod()
-    is_absolute = PathMethod(rtype=BoolVector)
-    is_reserved = PathMethod(rtype=BoolVector)
-    joinpath = PathMethod(rtype=THIS)
-    match = PathMethod(rtype=BoolVector)
-    relative_to = PathMethod(rtype=THIS)
-    with_name = PathMethod(rtype=THIS)
-    with_suffix = PathMethod(rtype=THIS)
+    as_posix = _PathMethod()
+    as_uri = _PathMethod()
+    is_absolute = _PathMethod(rtype=_BoolVector)
+    is_reserved = _PathMethod(rtype=_BoolVector)
+    joinpath = _PathMethod(rtype=THIS)
+    match = _PathMethod(rtype=_BoolVector)
+    relative_to = _PathMethod(rtype=THIS)
+    with_name = _PathMethod(rtype=THIS)
+    with_suffix = _PathMethod(rtype=THIS)
 
-    stat = PathMethod()
-    exists = PathMethod(rtype=BoolVector)
-    expanduser = PathMethod(rtype=THIS)
-    glob = PathMethod(rtype=CHAIN)
-    group = PathMethod()
-    is_dir = PathMethod(rtype=BoolVector)
-    is_file = PathMethod(rtype=BoolVector)
-    is_mount = PathMethod(rtype=BoolVector)
-    is_symlink = PathMethod(rtype=BoolVector)
-    is_socket = PathMethod(rtype=BoolVector)
-    is_fifo = PathMethod(rtype=BoolVector)
-    is_block_device = PathMethod(rtype=BoolVector)
-    is_char_device = PathMethod(rtype=BoolVector)
-    iterdir = PathMethod(rtype=CHAIN)
-    lstat = PathMethod()
-    owner = PathMethod()
-    read_bytes = PathMethod()
-    read_text = PathMethod()
-    resolve = PathMethod(rtype=THIS)
-    rglob = PathMethod(rtype=CHAIN)
-    samefile = PathMethod(rtype=BoolVector)
+    stat = _PathMethod()
+    exists = _PathMethod(rtype=_BoolVector)
+    expanduser = _PathMethod(rtype=THIS)
+    glob = _PathMethod(rtype=CHAIN)
+    group = _PathMethod()
+    is_dir = _PathMethod(rtype=_BoolVector)
+    is_file = _PathMethod(rtype=_BoolVector)
+    is_mount = _PathMethod(rtype=_BoolVector)
+    is_symlink = _PathMethod(rtype=_BoolVector)
+    is_socket = _PathMethod(rtype=_BoolVector)
+    is_fifo = _PathMethod(rtype=_BoolVector)
+    is_block_device = _PathMethod(rtype=_BoolVector)
+    is_char_device = _PathMethod(rtype=_BoolVector)
+    iterdir = _PathMethod(rtype=CHAIN)
+    lstat = _PathMethod()
+    owner = _PathMethod()
+    read_bytes = _PathMethod()
+    read_text = _PathMethod()
+    resolve = _PathMethod(rtype=THIS)
+    rglob = _PathMethod(rtype=CHAIN)
+    samefile = _PathMethod(rtype=_BoolVector)
 
 
 class DangerousPaths(Paths):
     """
-    I have not tested, even in passing, a god damnd thing here.
+    Version of Paths that implement filesystem modifying methods.
     """
-    chmod = PathMethod()
-    lchmod = PathMethod()
-    link_to = PathMethod()
-    mkdir = PathMethod()
-    open = PathMethod()
-    rename = PathMethod()
-    replace = PathMethod()
-    rmdir = PathMethod()
-    symlink_to = PathMethod()
-    touch = PathMethod()
-    unlink = PathMethod()
-    write_bytes = PathMethod()
-    write_text = PathMethod()
+    chmod = _PathMethod()
+    lchmod = _PathMethod()
+    link_to = _PathMethod()
+    mkdir = _PathMethod()
+    open = _PathMethod()
+    rename = _PathMethod()
+    replace = _PathMethod()
+    rmdir = _PathMethod()
+    symlink_to = _PathMethod()
+    touch = _PathMethod()
+    unlink = _PathMethod()
+    write_bytes = _PathMethod()
+    write_text = _PathMethod()
 
 
 if __name__ == '__main__':
+    import time, os
+    p = r'C:\devel\BBS'
+    t1 = time.monotonic_ns()
+    for _ in walk(p): pass
+    t2 = time.monotonic_ns()
+    print(f"Mine\tdown:\t{t2 - t1}ns")
+    t1 = time.monotonic_ns()
+    for _ in walk(p, topdown=False): pass
+    t2 = time.monotonic_ns()
+    print(f"Mine\tup:\t{t2 - t1}ns")
+
+    t1 = time.monotonic_ns()
+    for _ in os.walk(p): pass
+    t2 = time.monotonic_ns()
+    print(f"OS\tdown:\t{t2 - t1}ns")
+    t1 = time.monotonic_ns()
+    for _ in os.walk(p, topdown=False): pass
+    t2 = time.monotonic_ns()
+    print(f"OS\tup:\t{t2 - t1}ns")
+
     w = pathlib.Path(__file__).resolve()
     x = w.parent
     y = x.parent
